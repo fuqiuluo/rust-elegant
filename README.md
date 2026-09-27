@@ -1,8 +1,6 @@
 # rust-elegant
 
-让 Claude Code 和 Codex 写出地道 Rust 代码的 Agent Skill。
-
-AI 写 Rust 常见的毛病：`&String` 当参数、到处 `.unwrap()`、借用报错就 `.clone()`、`Arc<Mutex<T>>` 满天飞、`_ => {}` 吞掉枚举变体、凭记忆写出早已改名的 crate API……这些代码能跑，但有经验的 Rust 工程师一看就难受。rust-elegant 在 agent 写、改、review Rust 代码时自动加载，给它一套具体的规范、反模式诊断表和 before/after 示例。
+让 Claude Code 和 Codex 写出优雅的 Rust 代码的 Agent Skill。
 
 ## 覆盖内容
 
@@ -18,10 +16,9 @@ AI 写 Rust 常见的毛病：`&String` 当参数、到处 `.unwrap()`、借用�
 
 ## 设计原则
 
-- **默认做法 + 例外，不是教条。** 每条规则都写明了例外情况，比如外部 `#[non_exhaustive]` 枚举必须写 `_`、`main` 里用 `Box<dyn Error>` 没问题，避免 agent 机械套用规则。
-- **只管本次改动的代码。** 已有代码遵循项目现有约定，发现问题只指出，不顺手重构。
-- **写完用 cargo 验证。** 要求 agent 改完跑 `cargo clippy` 和 `cargo test`，并给出对应的 clippy lint 配置。
-- **示例经过编译核对。** reference 里的关键示例用 stable rustc 编译验证过，标着"❌ 编译报错"的例子确认会报错；用 `{ ... }` 省略实现的片段是示意代码。
+- **默认做法 + 例外**: 每条规则都写明了例外情况，比如外部 `#[non_exhaustive]` 枚举必须写 `_`、`main` 里用 `Box<dyn Error>` 没问题，避免 agent 机械套用规则。
+- **只管本次改动的代码**: 已有代码遵循项目现有约定，发现问题只指出，不顺手重构。
+- **写完用 cargo 验证**: 要求 agent 改完跑 `cargo clippy` 和 `cargo test`，并给出对应的 clippy lint 配置。
 
 ## 安装
 
