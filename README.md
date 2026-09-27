@@ -116,5 +116,10 @@ rust-elegant/
 │   ├── ownership.md
 │   ├── project-structure.md
 │   └── type-design.md
-└── install.py          # 一键安装脚本
+├── install.py          # 一键安装脚本
+└── LICENSE
 ```
+
+## 许可证
+
+[The Unlicense](LICENSE)：本项目放入公有领域，任何人都可以复制、修改、分发、商用，不需要署名，也没有任何附加条件。
