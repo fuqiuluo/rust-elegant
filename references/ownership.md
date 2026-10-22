@@ -73,6 +73,23 @@ let state = Arc::new(AppState { /* ... */ });
 
 `RwLock` 不是 `Mutex` 的免费升级：它本身开销更大，读者/写者谁优先取决于平台（std 不保证），同样会死锁。没有测量数据时用 `Mutex`。
 
+### 锁中毒（poison）
+
+持有 std `Mutex` / `RwLock` 的线程 panic 时，锁会被标记为中毒，之后的 `.lock()` 返回 `Err(PoisonError)`。中毒意味着受保护的数据可能停在改了一半的状态。
+
+```rust
+// ✅ 让 panic 继续传播，expect 写清楚是哪把锁
+let mut users = self.users.lock().expect("users mutex poisoned");
+
+// ❌ 绕过中毒，继续使用可能已经损坏的数据
+let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
+
+// ❌ 包成普通错误返回：调用方没法恢复数据，只是把一个 bug 变成了难查的错误
+let mut users = self.users.lock().map_err(|_| Error::LockPoisoned)?;
+```
+
+`tokio::sync::Mutex`、`parking_lot::Mutex` 没有中毒机制，`.lock()` 直接返回守卫。
+
 ---
 
 ## 常见借用冲突的正确解法

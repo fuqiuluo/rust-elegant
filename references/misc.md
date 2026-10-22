@@ -111,7 +111,32 @@ std 的 `Mutex` / `RwLock` 写成 `let _ = m.lock();` 时 rustc 会直接报错�
 
 ---
 
-## 3. 无效分配：能零拷贝就不分配
+## 3. `#[must_use]`：忽略返回值就是 bug 时加上
+
+该加的地方：
+- **没有副作用的函数**：调用了却不用结果，等于什么都没做
+- **返回新值、不修改原值的方法**：如 `fn bump_minor(self) -> Self`、`fn trimmed(&self) -> String`。调用方很容易误以为它会原地修改
+- **类型**：惰性计算（builder、自定义迭代器适配器）、RAII 守卫。只创建不使用就没有效果
+
+```rust
+impl Version {
+    #[must_use]
+    pub fn bump_minor(self) -> Self { ... }
+}
+
+// 写成 v.bump_minor(); 而不是 v = v.bump_minor(); 时编译器会警告
+
+#[must_use = "the request is not sent until .send() is called"]
+pub struct RequestBuilder { ... }
+```
+
+返回类型本身已经是 `#[must_use]` 的（`Result`、`Future`、std 的迭代器适配器）不用再加，clippy 会报 `double_must_use`。
+
+clippy 的 `return_self_not_must_use`（pedantic）检查返回 `Self` 的方法；`must_use_candidate`（pedantic）会找出所有可以加的函数，提示很多，适合在库里偶尔跑一次。
+
+---
+
+## 4. 无效分配：能零拷贝就不分配
 
 ### 反模式
 
@@ -174,9 +199,31 @@ fn normalize(s: &str) -> Cow<'_, str> {
 | 需要存储且生命周期不确定 | `String` / `Vec<T>`（拥有所有权） |
 | 跨线程共享只读数据 | `Arc<str>` / `Arc<[T]>` |
 
+### 字符串拼接：用 `format!`
+
+```rust
+// ❌ 一串 +，还要到处补 & 和 .to_string()
+let url = scheme.to_string() + "://" + &host + ":" + &port.to_string() + &path;
+
+// ✅ 格式一眼可见
+let url = format!("{scheme}://{host}:{port}{path}");
+
+// ❌ 自造占位符再 replace，每次 replace 都分配一个新 String
+let msg = "Hello, {name}! You have {count} new messages."
+    .replace("{name}", &name)
+    .replace("{count}", &count.to_string());
+
+// ✅
+let msg = format!("Hello, {name}! You have {count} new messages.");
+```
+
+- 两个字符串相加（`a + &b`）或单次 `push_str` 不用改
+- 往已有的 `String` 里追加格式化内容用 `write!(s, ...)`（需要 `use std::fmt::Write;`），不要写 `s += &format!(...)`，后者多分配一个临时 `String`
+- 模板来自运行时（配置文件、用户输入）时 `format!` 用不了，用模板引擎 crate
+
 ---
 
-## 4. 宏：最后的手段
+## 5. 宏：最后的手段
 
 消除重复的顺序：**函数 → 泛型 / trait → 现成的 derive 宏 → 自己写 `macro_rules!`**。宏会让报错信息晦涩、IDE 补全失效、调试变难，前面几种办不到时才用。
 
@@ -246,7 +293,7 @@ define_versions! {
 
 ---
 
-## 5. 依赖管理：避免版本幻觉
+## 6. 依赖管理：避免版本幻觉
 
 ### 反模式
 
@@ -294,3 +341,54 @@ AI 的训练数据有时间截止，可能混用不同年份的 API：
 - `rand 0.8` / `0.9` / `0.10` 的随机数 API 各不相同（见上）
 
 **原则：写完代码后用 `cargo check` 验证所有外部 crate 的调用在当前使用的版本里确实存在。**
+
+---
+
+## 7. `unsafe`：先证明非用不可
+
+写 `unsafe` 之前先回答两个问题：
+- 为什么不能用 safe 代码写？标准库或成熟的 crate 有没有现成的 safe 封装（如字节转换用 `bytemuck` / `zerocopy`）？
+- 理由是性能时，有没有 benchmark 证明 safe 版本确实是瓶颈、`unsafe` 版本确实更快？
+
+```rust
+// ❌ 为了"省掉边界检查"直接上 get_unchecked：没测过，也没说明 i 为什么一定在范围内
+let sum: u64 = (0..n).map(|i| unsafe { *data.get_unchecked(i) }).sum();
+
+// ✅ 迭代器本身不做逐元素的边界检查，safe 且一样快
+let sum: u64 = data[..n].iter().sum();
+```
+
+确实需要时：
+- 封装成小而完整的 safe 抽象（一个类型或一个模块），对外只暴露 safe API，不让 `unsafe` 散落到业务逻辑里
+- 每个 `unsafe` 块写 `// SAFETY:`，每个 `unsafe fn` 写 `# Safety` 文档（模板见 [comments.md](comments.md)）
+- 在 SAFETY 注释或模块文档里写明为什么不用 safe 写法；理由是性能时写上 benchmark 的名字或结果
+
+---
+
+## 8. 让推断出的类型看得见
+
+`.parse()`、`.into()`、`.collect()` 这类由上下文决定返回类型的调用，以及长迭代器链的结果，要在代码里写出目标类型，让读者不用跳到别处就知道是什么。写在变量上或用 turbofish 都可以：
+
+```rust
+// ❌ 要去翻 connect() 的签名才知道 port 是什么类型、addr.into() 转成了什么
+let port = env::var("PORT")?.parse()?;
+connect(addr.into(), port)?;
+
+// ✅
+let port: u16 = env::var("PORT")?.parse()?;
+connect(IpAddr::from(addr), port)?;
+
+let ids = rows.iter().map(|r| r.id).collect::<HashSet<_>>();
+```
+
+`.into()` 的目标类型不明显时，改写成 `Target::from(x)`。目标类型已经写在紧邻的函数签名、结构体字段或返回值上时不用重复。
+
+---
+
+## 9. 其他不要做的事
+
+- **不用 nightly 的 `#![feature(...)]`**。项目本来就固定在 nightly（`rust-toolchain.toml` 里写了 nightly）时除外
+- **不用 `std::panic::catch_unwind` 处理错误**：可恢复的失败用 `Result`。它在 `panic = "abort"` 下根本不起作用。例外是 FFI 边界、任务调度器这类需要隔离 panic 的基础设施，而且不能依赖它保证正确性
+- **不在 `main` 之前运行代码**（`ctor` 等 crate）：执行顺序不可控，出错时日志都还没初始化。需要全局状态用 `LazyLock`，或在 `main` 里显式初始化
+- **不访问其他 crate 标了 `#[doc(hidden)]` 的条目**：它们不属于公共 API，任何版本都可能改掉。那个 crate 自己的宏展开出来的调用除外
+- **`#[rustfmt::skip]` 只用于需要手动对齐的代码**（矩阵、查找表）和生成的代码，不用来坚持个人格式偏好

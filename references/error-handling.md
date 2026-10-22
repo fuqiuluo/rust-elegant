@@ -1,6 +1,34 @@
 # 错误处理规范
 
-## 核心决策树
+## 先选机制：Option、Result 还是 panic
+
+| 失败的性质 | 用什么 | 例子 |
+|---|---|---|
+| 原因单一、一看就懂，调用方拿到更多信息也没用 | `Option<T>` | `checked_add` 溢出、`HashMap::get` 找不到 key |
+| 外部原因导致、写对了代码也避免不了，调用方可能要按原因分别处理 | `Result<T, E>` | 读文件（`NotFound` 还是 `PermissionDenied`）、网络请求、解析用户输入 |
+| 调用方违反了前置条件，也就是代码有 bug | `panic!`，并在文档写 `# Panics` | 下标越界、`Vec::remove` 传入超出长度的 index |
+
+panic 报告的是 bug，要改代码修掉，而不是在运行时处理。所以不要用 panic 表示"预期会发生的失败"，也不要把调用方的 bug 包成 `Result` 让对方去 match。
+
+```rust
+impl Buffer {
+    /// 移除并返回第 `index` 个元素。
+    ///
+    /// # Panics
+    ///
+    /// `index >= self.len()` 时 panic。
+    pub fn remove(&mut self, index: usize) -> u8 {
+        assert!(index < self.len(), "index {index} out of bounds (len {})", self.len());
+        // ...
+    }
+}
+```
+
+有些项目（嵌入式、要求不能 panic 的服务）连违反前置条件也要求返回 `Result`，按项目约定来。
+
+---
+
+## Result 的错误类型：thiserror 还是 anyhow
 
 ```
 调用方需要根据不同错误做不同处理吗？（判断标准来自 Luca Palmieri）
@@ -144,6 +172,27 @@ static VERSION_RE: LazyLock<Regex> =
 ```
 
 `std::sync::LazyLock` 从 Rust 1.80 起稳定，不需要再引入 `once_cell` / `lazy_static`。
+
+### `assert!` 写清楚为什么
+
+`assert!` 和 `.expect()` 一样，失败信息要能帮人定位问题。第二个参数写清楚下面至少一项：为什么应该成立、实际值是多少、是调用方用错了 API 还是内部 bug。
+
+```rust
+// ❌ 没有说明，或说明只是复述条件
+assert!(values.is_sorted());
+assert!(values.is_sorted(), "values should be sorted");
+
+// ✅ 说明为什么应该成立：失败时就知道是哪个前提被打破了
+assert!(values.is_sorted(), "values come from BinaryHeap::into_sorted_vec, so they must be sorted");
+
+// ✅ 打印实际值
+assert!(refund > 0, "refund must be positive, got {refund}");
+
+// ✅ 说明是调用方用错了 API
+assert!(self.stream.is_some(), "call connect() before execute_query()");
+```
+
+想给断言加一行 `//` 注释时，把它写进断言消息里：消息会出现在 panic 信息和日志里，注释不会。
 
 ---
 

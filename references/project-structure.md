@@ -13,6 +13,56 @@
 
 ---
 
+## crate 内的模块组织
+
+- **模块和文件以其中的主要类型命名**：`Parser` 放在 `parser.rs`。不围绕某个类型的模块按职责命名即可
+- **有子模块的模块以声明和再导出为主**：`lib.rs`、`mod.rs` 或与目录同名的 `foo.rs`，主要放 `mod` 声明和 `pub use`，具体实现放进子模块。少量把各部分串起来的代码可以留在这里。这样看一眼 `lib.rs` 就知道 crate 的结构，找代码时也不用猜它在父模块还是子模块里。`#[cfg(test)] mod tests` 不算子模块
+- **用 `pub use` 把公共类型提到 crate 根**：调用方写 `my_crate::Parser`，子模块的划分是内部实现细节，以后调整不会破坏调用方
+
+```rust
+// src/lib.rs
+mod lexer;
+mod parser;
+mod token;
+
+pub use lexer::Lexer;
+pub use parser::{ParseError, Parser};
+pub use token::Token;
+```
+
+---
+
+## `use` 怎么写
+
+**不用 glob 导入 `use foo::*`。** 读代码时看不出名字从哪来，上游新增同名条目时还可能引发冲突。例外：
+- 测试模块里的 `use super::*;`
+- 第三方 crate 专门提供的 prelude（如 `use bevy::prelude::*;`）
+- 只处理某个枚举的函数里，导入它的变体：`use Token::*;`
+
+clippy 的 `wildcard_imports`（pedantic）会检查 glob 导入，默认放过测试模块里的 `use super::*` 和名为 `prelude` 的模块。
+
+**自由函数带上模块名调用，类型直接导入。**
+
+```rust
+// ✅ 看到 fs:: 就知道是标准库的文件操作；不带前缀的 foo() 默认是当前模块的
+use std::fs;
+use regex::Regex;
+
+let text = fs::read_to_string(path)?;
+let re = Regex::new(r"^\d+$")?;
+
+// ❌ 函数直接导入，读到 read_to_string(path) 时要往上翻才知道它从哪来
+use std::fs::read_to_string;
+let text = read_to_string(path)?;
+
+// ❌ 类型带着路径写，冗长
+let re = regex::Regex::new(r"^\d+$")?;
+```
+
+类型名有歧义时带上模块名（`io::Error`、`fmt::Result`），或用 `as` 重命名（`use std::io::Error as IoError;`）。
+
+---
+
 ## 推荐结构：扁平 crates/ 布局
 
 来自 rust-analyzer（20万行代码）的实战经验：**扁平优于树形**。

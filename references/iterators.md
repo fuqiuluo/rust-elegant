@@ -55,7 +55,55 @@ let total: u64 = departments.iter()
 - 循环体里要用 `?` 提前返回，而且不只是收集结果（只收集结果时用 `collect::<Result<Vec<_>, _>>()`，见 Part 3）
 - 一次遍历要更新多个累加器，或者有复杂的 `break` / `continue`
 - 循环的目的是副作用（打日志、写文件、发请求），不产出新值。这时 `for` 比 `.for_each()` 更直接
+- 闭包里要修改外部的可变状态，比如在 `.map()` / `.inspect()` 里给计数器加一
 - 链条长到要在中间加注释才能看懂
+
+```rust
+// ❌ 闭包里偷偷改外部计数器，读链条时很容易漏看
+let mut failed = 0;
+let configs: Vec<Config> = inputs.iter()
+    .map(|s| s.parse::<Config>())
+    .inspect(|r| if r.is_err() { failed += 1 })
+    .filter_map(Result::ok)
+    .collect();
+
+// ✅ for + match，两个结果一目了然
+let mut failed = 0;
+let mut configs = Vec::new();
+for s in &inputs {
+    match s.parse::<Config>() {
+        Ok(cfg) => configs.push(cfg),
+        Err(_) => failed += 1,
+    }
+}
+```
+
+反过来，`any` / `all` / `find` / `sum` 这类适配器本身就封装了逻辑，改写成 `for` 反而要手写 `break` 和标志变量，这时用迭代器。
+
+### 不要把迭代器链写在 `for` 头里
+
+```rust
+// ❌ 链条挤在 for 头里，循环体和过滤条件混在一起
+for bug in reports
+    .iter()
+    .filter_map(|r| r.parse::<Bug>().ok())
+    .filter(|bug| bug.priority <= Priority::P1)
+{
+    assign(bug);
+}
+
+// ✅ 先赋给一个变量，变量名说明了这条链在做什么
+let urgent_bugs = reports
+    .iter()
+    .filter_map(|r| r.parse::<Bug>().ok())
+    .filter(|bug| bug.priority <= Priority::P1);
+
+for bug in urgent_bugs {
+    assign(bug);
+}
+```
+
+`for x in items.iter().enumerate()` 这种一两个适配器的短链可以直接写在 `for` 头里。
 
 ### 常用 Iterator 方法速查
 
@@ -140,6 +188,34 @@ fn parse_config(s: &str) -> Result<Config, Error> {
     Ok(Config { port })
 }
 ```
+
+### 反模式：先检查再 unwrap
+
+```rust
+// ❌ 不会 panic 全靠前一行的检查；重构时两行一分开，就成了 panic
+if opt.is_some() {
+    use_value(opt.unwrap());
+}
+if map.contains_key(&key) {
+    total += map[&key];   // 还多查了一次哈希表
+}
+if !items.is_empty() {
+    process(&items[0]);
+}
+
+// ✅ 用模式匹配，由编译器保证不会 panic
+if let Some(value) = opt {
+    use_value(value);
+}
+if let Some(v) = map.get(&key) {
+    total += v;
+}
+if let Some(first) = items.first() {
+    process(first);
+}
+```
+
+同理：`if i < v.len() { v[i] }` → `v.get(i)`，`if s.starts_with("v") { &s[1..] }` → `s.strip_prefix('v')`。
 
 ### Option 组合子速查
 

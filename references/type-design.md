@@ -74,6 +74,14 @@ let s = v.to_string();          // Display，免费获得
 | 排序 | `#[derive(PartialOrd, Ord)]`（或手动实现并注释排序语义） |
 | 默认值 | 字段的零值就是合理默认时 `#[derive(Default)]`，否则手写 `impl Default` |
 
+### 常用 trait 的实现建议
+
+- 能 `#[derive]` 就不手写。必须手写时（比如 `PartialEq` 只比较 `id`），在 impl 上注释说明语义
+- 库的公共类型主动实现常用 trait：至少 `Debug`，语义允许时再加 `Clone`、`PartialEq` / `Eq`、`Hash`、`Default`。下游 crate 没法给你的类型补这些 impl（孤儿规则）。应用内部的类型用到时再加
+- 有无参的 `new()` 就同时实现 `Default`（clippy `new_without_default`），可以直接 `fn new() -> Self { Self::default() }`
+- 有 `len()` 就提供 `is_empty()`（clippy `len_without_is_empty`）
+- 运算符重载（`Add`、`Mul`、`Index`…）只用于数学或逻辑上说得通的语义，不要当语法糖：给路径拼接实现 `Add` 让人写 `base + "file.txt"` 是反例，用 `join` 方法
+
 ---
 
 ## 2. Trait 抽象替代 C 式传参
@@ -185,7 +193,7 @@ fn connect(host: &str, port: Port, timeout: Duration) -> ...
 
 ---
 
-## 3. `&str` 和 `&[T]` 而不是 `&String` 和 `&Vec<T>`
+## 3. 参数与返回值类型：`&str` 和 `&[T]` 而不是 `&String` 和 `&Vec<T>`
 
 ### 反模式
 ```rust
@@ -215,9 +223,67 @@ process(&arc_str, &boxed_slice);         // Arc<str> / Box<[i32]> 也能通过 D
 |---|---|---|
 | 只读字符串 | `&String` | `&str` |
 | 只读序列 | `&Vec<T>` | `&[T]` |
+| 只读 Box 里的值 | `&Box<T>` | `&T` |
+| 只读可能不存在的值 | `&Option<T>` | `Option<&T>`（调用方传 `opt.as_ref()`） |
 | 只读字符串，调用方手里可能是 `String` 也可能是 `&str` | `String` | `&str` 或 `impl AsRef<str>` |
-| 只遍历一次 | `Vec<T>` | `impl IntoIterator<Item = T>` |
+| 只遍历一次 | `Vec<T>` | 库的公共 API：`impl IntoIterator<Item = T>`；应用代码用 `&[T]` 更简单就直接用 |
 | 只读路径 | `&PathBuf` / `PathBuf` | `&Path` 或 `impl AsRef<Path>` |
 | 当场调用、不保存的回调 | `Box<dyn Fn(...)>` | `impl Fn(...)` |
 
-函数要把参数**存起来**时反过来：直接接收拥有所有权的类型（`String`、`Vec<T>`、`PathBuf`、`Box<dyn Fn(...)>`），或用 `impl Into<String>` 让调用方决定要不要分配。接收 `&str` 再在函数里 `.to_string()` 只是把分配藏了起来。
+函数要把参数**存起来**时反过来：直接接收拥有所有权的类型（`String`、`Vec<T>`、`PathBuf`、`Box<dyn Fn(...)>`）。接收 `&str` 再在函数里 `.to_string()` 只是把分配藏了起来。
+
+`impl Into<String>` 能让调用方直接传字面量，但它是泛型：签名更复杂，每种实参类型各生成一份代码，有时还会让调用处的类型推断失败。只在库的公共 API、且调用方便利性很重要时用（比如 builder 的 setter）；应用代码直接接收 `String`，让调用方自己写 `.to_string()`。
+
+### 返回值：迭代器还是 `Vec`
+
+库的公共 API 只是让调用方遍历结果时，返回 `impl Iterator`，由调用方决定 collect、计数还是只取前几个：
+
+```rust
+impl Inventory {
+    // ✅ 调用方可以 .count()、.take(10)，需要时再 collect，不会被迫分配
+    pub fn low_stock(&self, threshold: u32) -> impl Iterator<Item = &Item> {
+        self.items.iter().filter(move |item| item.qty < threshold)
+    }
+}
+```
+
+这些情况返回 `Vec<T>` 更合适：大多数调用方本来就要 `Vec`；实现里本来就构造了 `Vec`；结果需要随机访问；函数的目的就是构建一个新集合。返回已有的 `Vec` 字段时返回 `&[T]`。应用代码返回 `Vec<T>` 更简单就直接返回。
+
+---
+
+## 4. 具名字段优先于元组
+
+```rust
+// ❌ 调用方只能靠 .0 / .1 / .2 猜含义，两个 u32 顺序弄反了编译器也发现不了
+fn bounds(&self) -> (u32, u32, bool)
+pub struct Span(usize, usize);
+
+// ✅ 字段名就是文档
+pub struct Bounds {
+    pub min: u32,
+    pub max: u32,
+    pub inclusive: bool,
+}
+fn bounds(&self) -> Bounds
+
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+```
+
+例外：
+- 单字段的 newtype（`struct Port(u16)`）
+- 非常局部、一眼能看懂的场景：私有辅助函数返回 `(key, value)`、`.enumerate()` / `.zip()` 产出的元组当场解构
+
+---
+
+## 5. 库的公共 API：给以后的修改留余地
+
+只针对会被其他 crate 依赖的公共 API。应用内部的类型随时可以改，不需要这些。
+
+- **以后可能加变体的公共 enum 加 `#[non_exhaustive]`**，加变体时不会破坏下游，错误枚举是典型。例外：描述固定集合的枚举（`Color { Red, Green, Blue }`）和两值枚举（`Visibility { Visible, Hidden }`）。
+- **字段全是 `pub` 的公共 struct**：加任何字段（哪怕是私有字段）都会让下游的结构体字面量编译失败。以后可能加字段的就加 `#[non_exhaustive]`，外部只能通过构造函数或 Builder 创建。例外：字段固定的类型（`Point { x, y }`），以及要让调用方写 `..Default::default()` 的配置结构体（`#[non_exhaustive]` 会禁止外部 crate 用这个语法）。
+- **`pub const fn` 是兼容性承诺**：以后去掉 `const` 是破坏性变更。只在确定以后的实现也能保持 const 时才加。
+
+`#[non_exhaustive]` 只限制其他 crate；本 crate 内 match 自己的枚举仍然可以、也应该列出所有变体（见 [misc.md](misc.md)）。

@@ -6,13 +6,14 @@
 
 | 主题 | 内容 |
 |---|---|
-| [类型设计](references/type-design.md) | 行为归位到 `impl`、`FromStr`/`Display`/`TryFrom` 等标准 trait、trait 抽象、配置结构体与 Builder、Newtype、`&str`/`&[T]` 参数 |
-| [错误处理](references/error-handling.md) | thiserror 与 anyhow 的选择、`.unwrap()`/`.expect()`/`Box<dyn Error>` 的适用场景、`LazyLock` |
-| [所有权](references/ownership.md) | 常见借用冲突的正确解法、锁与原子类型的选择、什么时候 clone 是合理的 |
-| [迭代器](references/iterators.md) | 迭代器链与 Option/Result 组合子，以及什么时候 `for` 循环更好 |
-| [项目结构](references/project-structure.md) | 先模块后 Workspace、扁平 `crates/` 布局、crate 依赖方向 |
+| [类型设计](references/type-design.md) | 行为归位到 `impl`、`FromStr`/`Display`/`TryFrom` 等标准 trait、常用 trait 的实现、trait 抽象、配置结构体与 Builder、Newtype、参数与返回值类型、具名字段、库公共 API 的兼容性 |
+| [命名](references/naming.md) | `as_`/`to_`/`into_` 转换方法、getter/setter、构造函数、迭代器方法 |
+| [错误处理](references/error-handling.md) | Option/Result/panic 的选择、thiserror 与 anyhow 的选择、`.unwrap()`/`.expect()`/`assert!`/`Box<dyn Error>` 的适用场景、`LazyLock` |
+| [所有权](references/ownership.md) | 常见借用冲突的正确解法、锁与原子类型的选择、锁中毒、什么时候 clone 是合理的 |
+| [迭代器](references/iterators.md) | 迭代器链与 Option/Result 组合子、先检查再 unwrap，以及什么时候 `for` 循环更好 |
+| [项目结构](references/project-structure.md) | crate 内模块组织、`use` 写法、先模块后 Workspace、扁平 `crates/` 布局、crate 依赖方向 |
 | [注释](references/comments.md) | Rustdoc 惯例（`# Errors`/`# Panics`/`# Safety`）、`// SAFETY:` 注释、不写废话和横幅 |
-| [杂项](references/misc.md) | match 穷尽性、`_name` 与 `let _ =` 的 drop 时机、避免无效分配、宏的使用时机、依赖版本幻觉 |
+| [杂项](references/misc.md) | match 穷尽性、`_name` 与 `let _ =` 的 drop 时机、`#[must_use]`、避免无效分配、宏的使用时机、依赖版本幻觉、`unsafe`、类型标注、其他禁止项 |
 
 ## 设计原则
 
@@ -110,6 +111,7 @@ rust-elegant/
 │   ├── error-handling.md
 │   ├── iterators.md
 │   ├── misc.md
+│   ├── naming.md
 │   ├── ownership.md
 │   ├── project-structure.md
 │   └── type-design.md
