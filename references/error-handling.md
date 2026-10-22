@@ -49,8 +49,8 @@ pub enum ConfigError {
     #[error("config file not found at {path}")]
     NotFound { path: PathBuf },
 
-    #[error("invalid TOML: {0}")]
-    ParseFailed(#[from] toml::de::Error),  // #[from] 自动生成 From impl
+    #[error("invalid TOML")]
+    ParseFailed(#[from] toml::de::Error),  // #[from] 自动生成 From impl，并把它设为 source()
 
     #[error("missing required field: {field}")]
     MissingField { field: &'static str },
@@ -67,6 +67,16 @@ fn load_or_default(path: &Path) -> Result<Config, ConfigError> {
     }
 }
 ```
+
+**底层错误放进 `source()` 就不要再写进 Display。** `#[from]` 和 `#[source]` 都会把底层错误设为 `source()`，错误报告器（如 anyhow 的 `{:#}` 和 `{:?}`）会沿着 `source()` 链逐层打印。消息里再写 `{0}`，同一段信息就会出现两次：
+
+```rust
+// anyhow 用 {:#} 打印 load_config(...).context("failed to load configuration") 的错误：
+// ❌ #[error("invalid TOML: {0}")] → failed to load configuration: invalid TOML: <toml 错误>: <toml 错误>
+// ✅ #[error("invalid TOML")]      → failed to load configuration: invalid TOML: <toml 错误>
+```
+
+底层错误只是普通字段、不作为 source 时（没有 `#[from]` / `#[source]`，字段名也不叫 `source`），才把它写进消息。
 
 ### Application / bin：anyhow
 
@@ -96,7 +106,7 @@ fn main() -> Result<()> {
 pub enum ApiError {
     #[error("rate limit exceeded")]
     RateLimit,
-    #[error("upstream error: {0}")]
+    #[error("upstream request failed")]
     Upstream(#[from] reqwest::Error),
 }
 

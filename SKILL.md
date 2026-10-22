@@ -1,7 +1,7 @@
 ---
 name: rust-elegant
 description: >
-  Rust 优雅开发规范，必须在以下场景触发：为 Rust 项目写代码、review Rust 代码、设计 Rust 项目结构、处理 Rust 错误类型时。覆盖注释规范、枚举设计、trait 抽象、项目结构、错误处理、所有权、迭代器、宏、内存分配、match 穷尽性等所有 Rust惯用法。只要任务涉及写或修改 Rust 代码，必须读取此 skill。
+  Rust 优雅开发规范，必须在以下场景触发：为 Rust 项目写代码、review Rust 代码、设计 Rust 项目结构、处理 Rust 错误类型时。覆盖注释规范、枚举设计、trait 抽象、项目结构、错误处理、所有权、迭代器、宏、内存分配、match 穷尽性等所有 Rust 惯用法。只要任务涉及写或修改 Rust 代码，必须读取此 skill。
 ---
 
 # Rust 优雅开发规范
